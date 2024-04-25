@@ -83,10 +83,12 @@ BRTMP   rmb     2
 BKTAB   rmb     12
 TMPSTR  rmb     8
 PC      rmb     2
+WHAT
 NEXT    rmb     2
 SAVINST rmb     1
 BRANCH  rmb     2
 INST    rmb     1
+FINDNO
 NBYTES  rmb     1
 
 DSTACK  equ     $DFFF    ;*
@@ -343,22 +345,19 @@ CONTRL  LDS     #ASTACK ;* SET CONTRL STACK POINTER
         BEQ     DESSMV          ;* Dessemble
 ;
 	CMPB	#'B'
-	BEQ	BRINSTV         ;* PRINT/PUNCH
+	BEQ	BRINSTV         ;* Break set/clear
 ;
 	CMPB	#'b'
-	BEQ	BPINSTV         ;* PRINT/PUNCH
+	BEQ	BPINSTV         ;* Break print
 ;
 	CMPB	#'F'
-	BEQ	FMINSTV         ;* PRINT/PUNCH
+	BEQ	FMINSTV         ;* Fill memory
 ;
 	CMPB	#'J'
-	BEQ	JUINSTV         ;* PRINT/PUNCH
+	BEQ	JUINSTV         ;* Jump 
 ;
 	CMPB	#'*'
-	BEQ	RSTINTV         ;* PRINT/PUNCH
-;
-	CMPB	#'#'
-	BEQ	HELP            ;* Want to add code here to dump PC, SP, Regs
+	BEQ	RSTINTV         ;* Cold start
 ;
 	CMPB	#'S'
 	BEQ	SSINSTV         ;* Single Step
@@ -367,7 +366,7 @@ CONTRL  LDS     #ASTACK ;* SET CONTRL STACK POINTER
 	BEQ	STINSTV         ;* Trace (start single step)
 ;
 	CMPB	#'W'
-	BEQ	FIINSTV         ;* Trace (start single step)
+	BEQ	FIINSTV         ;* where (Find)
 ;
 	CMPB	#'?'
 	BEQ	HELP            ;* Help
@@ -881,7 +880,7 @@ RTSIN	ldx	SP               ;* Get user stack pointer X770F
 ;* -----------------------------------------------------------------------------
 ;
 ;* -----------------------------------------------------------------------------
-HELLOST fcb     '\12\r\nMODBUG 1.11.17\4'
+HELLOST fcb     '\12\r\nMODBUG 1.11.18\4' ;* 12 = ^L (CLS)
 ;* -----------------------------------------------------------------------------
 ; ==============================================================================
 ;OUTCH
@@ -1194,72 +1193,147 @@ BPR4:   stx	SAVEX
 
 ; -[ Find ]---------------------------------------------------------------------
 ;*
-FIINST: ldx	#MANYST         ; X7E33
+    ifndef      NADA
+; ===========================================================================
+        ;;* E305 14 Pg 183R
+        ;ORG     $E305          ;
+
+FIND
+FIINST  ldx     #MANYST         ;* ($E0AB)
+        jsr     PDATA1          ;* Ask "How many btyes"
+        jsr     INEEE           ;* Get a number
+        suba    #$30            ;* Convert from ASCII
+        beq     FIND5           ;* if = 0
+        bmi     FIND5           ;* if < 0
+        cmpa    #$03            ;*
+        bgt     FIND5           ;* If > 3
+        staa    FINDNO          ;* store number of bytes ($D025)
+        jsr     OUTS            ;*
+        ldx     #WHATST         ;* ($E1EA)
+        jsr     PDATA1          ;* Ask "What bytes"
+        ldx     #WHAT           ;* ($D025)
+        ;;
+        ;; Get the 'WHAT' to search for
+        ;;
+        ldab    FINDNO
+FIENTR  pshb                    ;*
+        jsr     BYTE            ;* Enter a byte
+        staa    0,X             ;* Store it
+        jsr     OUTS
+        inx                     ;*
+        pulb                    ;* Restore counter
+        decb                    ;*
+        bne     FIENTR          ;* Enter more, if needed
+        ;;
+        ;; Now ask the address range
+        ;; 
+        jsr     FROMTO          ;* Get BEGA and ENDA
+        ldx     BEGA            ;* Get ready to look
+FIND1   ldab    FINDNO          ;* Main find loop ($D025)
+        ldaa    0,X             ;* Get first byte
+        cmpa    WHAT            ;*
+        bne     FIND4           ;* Wrong byte
+        ;;
+        ;;  Found #1
+        ;; 
+        decb                    ;*
+        beq     FIND2           ;* Found one correct byte
+        ldaa    1,X             ;* Get second byte
+        cmpa    WHAT+1          ;*
+        bne     FIND4           ;* Wrong
+        ;;
+        ;; Found #2
+        decb                    ;*
+        beq     FIND2           ;* Found two correct bytes
+        ldaa    2,x             ;* Get tird byte
+        cmpa    WHAT+2          ;*
+        bne     FIND4           ;* Wrong byte
+        ;;
+        ;; Found #3
+        ;; 
+FIND2   stx     SAVEX           ;* Found correct bytes
+        bsr     FIND5           ;* Print CRLF via vector at FIND5
+        ldx     #SAVEX          ;* Point to address where found ($D020)
+        jsr     OUT4HS          ;* Print it -
+        jsr     OUTS            ;* One more space
+        ldx     SAVEX           ;*
+        ldab    #$04            ;* Ready to print 4 bytes
+FIND3   jsr     OUT2HS          ;* Print byte
+        decb                    ;*
+        bne     FIND3           ;* Print four bytes
+        ldx     SAVEX           ;* Restore X
+FIND4   cpx     ENDA            ;* See if doine
+        beq     FIEND           ;* Yes
+        inx                     ;* No
+        bra     FIND1           ;* Keep looking
+        ;;
+        ;;
+        ;; 
+FIND5   jmp     CRLF            ;* Do last CRLF nd return to FCROM when done ($E37E)
+
+FIEND   jmp     CONTRL
+
+    else
+FIINST: ldx	#MANYST         ;*
 	jsr	PDATA1
-	jsr	INEEE           ; (L 7733)
+	jsr	INEEE           ;*
 	suba	#$30
-	beq	L7E30
-	bmi	L7E30
+	beq	FIND6
+	bmi	FIND6
 	cmpa	#$03
-	bgt	L7E30
-	staa	NBYTES          ;* X76E9
-	jsr	OUTS            ; (L 76DA)
-	ldx	#WHATST         ; X7950
+	bgt	FIND6
+	staa	NBYTES          ;*
+	jsr	OUTS            ;*
+	ldx	#WHATST         ;*
 	jsr	PDATA1
-	ldab	NBYTES          ;* X76E9
-	ldx	#NEXT           ;* (X76EC)
-L7DDA:
-	pshb
+	ldab	NBYTES          ;*
+	ldx	#NEXT           ;*
+FIND1	pshb
 	jsr	BYTE
 	pulb
 	staa	0,X
 	inx
 	decb
-	bne	L7DDA
+	bne	FIND1
 	jsr	CRLF
 	jsr	FROMTO          ; (L7957)
 	ldx	BEGA            ;* X7705
-L7DEE:
-	ldab	NBYTES          ;* X76E9
+FIND2	ldab	NBYTES          ;* X76E9
 	ldaa	0,X
 	cmpa	NEXT            ;* (X76EC)
-	bne	L7E28
+	bne	FIND5
 	decb
-	beq	L7E0C
+	beq	FIND3
 	ldaa	1,X
 	cmpa	NEXT+1          ;* (X76ED)
-	bne	L7E28
+	bne	FIND5
 	decb
-	beq	L7E0C
+	beq	FIND3
 	ldaa	2,X
 	cmpa	SAVINST         ;* (X76EE)
-	bne	L7E28
-L7E0C:
-	stx	SAVEX
-	bsr	L7E30
+	bne	FIND5
+FIND3	stx	SAVEX
+	bsr	FIND6
 	ldx	#SAVEX
-	bsr	L7E74
+	bsr	FIND7
 	jsr	OUTS            ; (L 76DA)
 	ldx	SAVEX
 	dex
 	ldab	#$04
-L7E1F:
-	jsr	OUT2HS          ; (L 76D8)
+FIND4	jsr	OUT2HS          ; (L 76D8)
 	decb
-	bne	L7E1F
+	bne	FIND4
 	ldx	SAVEX
-L7E28:
-;	cpx	USRSTK2         ; X7707
-	cpx	ENDA            ; X7707
-	beq	L7E30
+FIND5	cpx	ENDA            ; X7707
+	beq	FIND6
 	inx
-	bra	L7DEE
-L7E30:
-	jsr	CRLF
+	bra	FIND2
+
+FIND6	jsr	CRLF
         jmp     CONTRL
 
-L7E74:
-	jmp	OUT4HS          ; L76D6
+FIND7	jmp	OUT4HS          ; L76D6
+    endif
 ;
 MANYST  fcc     "HOW MANY? \4"
 WHATST  fcc     "WHAT? \4"
