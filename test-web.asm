@@ -41,8 +41,6 @@ START   nop
         nop
         nop
         nop
-        ;rts
-        ;lds        $0FFF
         ldaa    #$41    ;
         ldab    #$42
         psha
@@ -58,7 +56,10 @@ START   nop
         dex
         inx
         nop
-        nop
+	bsr	LOOPIN
+	jmp	OUT
+OUT	nop
+	jsr	LOOPIN
         nop
         ldaa    #$01
         nop
@@ -67,5 +68,9 @@ START   nop
         nop
         pulb
         pula
-;       jmp     $E1EE
         rts
+LOOPIN	ldaa	#$03
+LOOP	deca
+	bne	LOOP
+	rts
+

@@ -451,7 +451,7 @@ SFE     STS     SP              ;* SAVE TARGET'S STACK POINTER
 PCLO    DEC     6,X             ;* Dec PCLO
         
 
-    ifndef NADA
+    ifdef NADA
         psha                    ;* 0000 FF42414344201BFF
         ldaa    0,X
         staa    0               ;* 0000 CC = FF
@@ -476,7 +476,7 @@ PCLO    DEC     6,X             ;* Dec PCLO
 ;*
 	ldx     5,X             ;* 5,X is PC
 	stx	SAVEX           ;* SAVEX  (temp, X gets clobbered by PRNTOP, expect PC is in X)
-        stx     $20             ;* (njc)
+        ;stx     $20             ;* (njc)
 	jsr	PRNTOP          ;* Print Address and Instruction
         tsx
 ;*
@@ -643,11 +643,12 @@ JUINST  ;jsr     CRLF
         jsr     PDATA1
         jsr	BADDR           ;* Get the address and put it in X (L 768A)
 
-        jsr     OUTS
+        ;jsr     OUTS            ;
+        jsr     CRLF
 	
-        ldx     #BADDRH         ;* njc
-        jsr     OUT4HS
-        ldx     BADDRH          ;* njc
+        ;ldx     #BADDRH         ;* njc
+        ;jsr     OUT4HS
+        ;ldx     BADDRH          ;* njc - live dangerously?
 	
 	;lds	SP              ;*
 	lds	#DSTACK         ;*
@@ -655,7 +656,6 @@ JUINST  ;jsr     CRLF
 	jsr	0,X		;* JUMP to the User program (INFO: index jump)
         ldx     #DONE           ;*
         jsr     PDATA1
-;	rts
 	jmp	CONTRL          ;*
 
 ;* -[ Start SS ]----------------------------------------------------------------
@@ -696,22 +696,10 @@ STINST: ldx	#SFRMST         ; $7B6C
 	ldx	#DSTACK         ;* (X7FF6)
 	stx	SP              ;* (X770F)
 ;*
-;* @FIXME: All kinds of Wonky! Needs to run twice, Putting SWI ($3F) at the wrong addr
-;*
-;* MODBUG 1.11.2
-;* * L 
-;* S90D2020860101C6010101333239C309080101012C
-;* * B  NUMBER: 1  ADDR: 201B
-;* * J  ADDR: 2000 2000 
-;* AFF5  D5 42                                 <- Think this my misunderstanding
-;* hinzvc b  a  x    pc   sp
-;* 010101 42 41 4344 201B AFF4 
-;* * S 
-;* 2053  FF FFFF 
 ;*
 ;*
 SSINST  ldx	SP              ;*
-    ifndef NADA
+    ifdef NADA
         psha                    ;* 0010 40D5424143442053
         ldaa    0,X
         staa    $10             ;* 0010 junk
@@ -738,28 +726,12 @@ SSINST  ldx	SP              ;*
 	ldx	6,X             ;* PC
 	stx	PC              ;* USER PC
 	stx	SAVEX           ;* SAVEX  (temp, X gets inc'd by PRNTOP)
-        stx     $2E             ;* (njc)
+        ;stx     $2E             ;* (njc)
 	jsr	PRNTOP          ;* Print Address and Instruction (L79CE, DE2)
 ;
-; * J  ADDR: 2000 2000
-; 201B  3F
-; hinzvc b  a  x    pc   sp
-; 010101 42 41 4344 201B DFF4
-; * B  NUMBER: 1  ADDR:
-; * S
-; 201B  09                      ;* This is SSINST/PRNTOP  +-\       <- SSINST (First)
-;                                                            +---> VooDoo occurs!
-; 201C  3F                      ;* This is SFE/PRNTOP     +-/       <- SFE (Second)
-; hinzvc b  a  x    pc   sp     ;* This us SSINST/PRINT
-; 010001 42 41 4343 201C DFF4
-;
-; * D  FROM 0000 TO 001F
-; 0000 D142414343201CFF FFFFFFFFFFFFFFFF .BACC .......... <- SFE wrote this
-; 0010 46D542414344201B FFFFFFFFFFFFFFFF F.BACD ......... <- SSINST wrote this (201B?)
-; 0020 FFFFFFFFFFFFFFFF FFFFFFFFFFFFFFFF
 ;
         ldx     SAVEX
-        stx     $26             ;* (njc)
+        ;stx     $26             ;* (njc)
         ;;
         ;; It appears that the 2nd step doesn't correct the old SWI.    WHY???
         ;; @FIXME: NEXT/SAVINST has wrong inst here!
@@ -768,7 +740,7 @@ SSINST  ldx	SP              ;*
 	ldaa	0,X             ;* Get current instruction
 	staa	SAVINST         ;* Save it
         ;; 
-        staa    $28             ;* (njc) We're correct to here >>> !!! <<<
+        ;staa    $28             ;* (njc) We're correct to here >>> !!! <<<
         ;; 
 	ldaa	#_SWI           ;* $3F Replace with SWI
 	staa	0,X             ;* Replace instruction with SWI
@@ -838,18 +810,18 @@ GOUSER	ldx	#SSRETN         ;* Redirect SWI return
 SSRETN	ldx	SFE             ; Restore the break address
         stx     SWIJMP
 	ldx	NEXT            ;* Restore thee next OP Code
-        stx     $1C             ;* $1C & $D Next (njc)
+        ;stx     $1C             ;* $1C & $D Next (njc)
 	ldaa	SAVINST         ;*
 	staa	0,X
-        staa    $1E
+        ;staa    $1E            ;* (njc)
 	ldaa	BRANCH          ;* Check branch addr
 	cmpa	#$FF
 	beq	NONE            ;* 
 	ldx	BRANCH          ;* Restore the branch address
-        stx     $2C
+        ;stx     $2C            ;* (njc)
 	ldaa	BRANCH+2        ;* Instruction
 	staa	0,X
-        staa    $2E
+        staa    $2E             ;* (njc)
 NONE
 	jmp	SFE             ;* Store stack ptr & print registers
 ;*
@@ -909,7 +881,7 @@ RTSIN	ldx	SP               ;* Get user stack pointer X770F
 ;* -----------------------------------------------------------------------------
 ;
 ;* -----------------------------------------------------------------------------
-HELLOST fcb     '\12\r\nMODBUG 1.11.14\4'
+HELLOST fcb     '\12\r\nMODBUG 1.11.17\4'
 ;* -----------------------------------------------------------------------------
 ; ==============================================================================
 ;OUTCH
@@ -1023,7 +995,7 @@ NXTASC  ldaa    0,X
         dex
         cpx     ENDA            ;* Compare ENDA-1
         bne     AD6             ;*
-        jmp     CONTRL          ;* Done
+ADONE   jmp     CONTRL          ;* Done
 ;
 AD6     inx                     ;* Fix X
         inx                     ;* Next character
@@ -1040,6 +1012,12 @@ PDOT    ldaa    #$2E            ;* $2E = dot
 PCH     jsr     OUTEEE
         decb
         bne     NXTASC          ;*
+        ;; 
+        ldx     SAVEX
+        dex
+        cpx     ENDA            ;* Compare ENDA-1
+        beq     ADONE           ;* Done
+        ;; 
         bra     NXTLIN          ;*
 ; ------------------------------------------------------------------------------
 ;
@@ -1059,18 +1037,18 @@ DE1	bsr	PRNTOP          ;* Goto to print current line (L79CE)
 ;*
 ;* PRNTOP - Subroutine to print address and current instruction
 ;*
-PRNTOP	jsr	CRLF            ;* (L7717)
+PRNTOP	jsr	CRLF            ;*
 	ldx	#SAVEX          ;* Set location of next address
 ;*
 ;* Print address
 ;*
-	jsr	OUT4HS          ;* Print it (L76D6)
-	jsr	OUTS            ;* (L76DA)
+	jsr	OUT4HS          ;* Print it
+	jsr	OUTS            ;* 
 	ldx	SAVEX           ;* Get address of instruction
 	ldaa	0,X             ;* Get operation code
 	staa	SAVINST         ;* Save it
         ;; 
-        staa    $0D             ;* (njc) @FIXME: Here's the dang wrong OP Code
+        ;staa    $0D             ;* (njc) @FIXME: Here's the dang wrong OP Code
 ;*
 ;* Print op
 ;*
