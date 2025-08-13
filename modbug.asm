@@ -29,22 +29,55 @@
 ;*      ?  Help
 ;*
 ;*      ADDRESS
-        IFDEF _E000
+    IFDEF _E000
 ACIACS  EQU     $E000
 ACIADA  EQU     $E001
-        ELSE
+    ELSE
 ACIACS  EQU     $8018
 ACIADA  EQU     $8019
-        ENDIF
+    ENDIF
+
+;* 6850 Configuration
+;* Only 8 bits to write to the configuration file.  This is what I used:
+;* 
+;*         %00010101
+;* 
+;*         Bit  7            - clear - no interrupts                 0
+;*         Bits 6 & 5        - select type of interrupt.             00
+;*         Bits 4, 3 & 2     - 8 data bits, 1 stop bit and no parity 101
+;*         Bits 1 & 0        - divide clock by 16                    01
+
+;* Baud rates
+_8N1x16 EQU     $15             ;* 8-N-1 9600
+_7E2x16 EQU     $11
+
+ACIARST EQU     $03
+
+    ifndef      HBNEW
+        if      mompass=1
+        message "Serial console version"
+        endif
+
+LOPT    equ     's'             ;* 's' for serial
+    else
+        if      mompass=1
+        message "Video console version"
+        message "error   @FIXME:"
+        message "error   @FIXME: Doesn't make it to Welcome"
+        message "error   @FIXME:"
+        endif
+
+LOPT    equ     'v'             ;* 's' for video
+    endif
 ;
 ;VAR    EQU     $1F00
 ;*
 ;        ORG    VAR
-        IFDEF _E000
+    IFDEF _E000
         org     $A000           ;* $0080
-        ELSE
+    ELSE
         ORG     $1F00
-        ENDIF
+    ENDIF
 
 IOV     RMB    2         ;* A000 - IO INTERRUPT POINTER
 BEGA    RMB    2         ;* A002 - BEGINING ADDR PRINT/PUNCH
@@ -52,12 +85,10 @@ ENDA    RMB    2         ;* A004 - ENDING ADDR PRINT/PUNCH
 NIO     RMB    2         ;* A006 - NMI INTERRUPT POINTER
 SP      RMB    2         ;* A008 - S-HIGH
 ;       RMB    0         ;* A009 - S-LOW
-CKSM    RMB    1         ;* A00A - CHECKSUM
+CKSM    RMB    1         ;* A00A - S19 CHECKSUM
 
 BYTECT  RMB    1         ;* A00B - BYTE COUNT
-BADDRH
-XHI     RMB    1         ;* A00C - XREG HIGH
-XLOW    RMB    1         ;* A00D - XREG LOW
+BADDRH  RMB    2         ;* A00C - XREG HIGH/Low
 TEMP    RMB    1         ;* A00E - CHAR COUNT (INADD)
 TW      RMB    2         ;* A00F - TEMP
 MCONT   RMB    1         ;* A011 - TEMP
@@ -66,13 +97,15 @@ XTEMP   RMB    2         ;* A012 - X-REG TEMP STORAGE
 ASTACK  equ     $AFFF    ;* A049 - STACK POINTER (usually)
 
 ;* =============================================================================
-
         org     $D000
 USRV    rmb     2        ;* D002
 SWIJMP                   ;*   rmb     2
 SWIV    rmb     2        ;*
+        ;;
+        ;; All X temporary storage
+        ;; 
 OUTEXR  rmb     2        ;*
-INEXR   rmb     2        ;*
+INEEXR  rmb     2        ;*
 SAVEX   rmb     2        ;*
 TEMP1   rmb     2        ;*
 
@@ -80,6 +113,12 @@ COUNT   rmb     1
 
 ; BP/BR
 BRTMP   rmb     2
+;*       Hi Lo #
+;* BKTAB addr1 OP        ;* If it's FFFF it's empty
+;*       addr2 OP        ;* because we can't put SWI in ROM/RESET ($FFFF)
+;*       addr3 OP
+;*       addr4 OP
+;*
 BKTAB   rmb     12
 TMPSTR  rmb     8
 PC      rmb     2
@@ -90,7 +129,23 @@ BRANCH  rmb     2
 INST    rmb     1
 FINDNO
 NBYTES  rmb     1
-
+;*
+;*
+;*
+P0OUT   rmb     1               ;*
+P0RADD  RMB     2               ;* A00A
+P0RECH  RMB     1               ;* A00C
+;*
+P0STAT  RMB     1               ;* Port 0
+P1STAT  RMB     1               ;* Port 1
+VSTAT   RMB     1               ;*
+DSTAT   RMB     1               ;* BSTAT? DSTAT?
+PASTAT  RMB     1               ;* Pause flag
+RETADD  RMB     2               ;*
+PRTINZ  RMB     1               ;*
+KBDINZ  RMB     1               ;*
+PAUCTR  RMB     1               ;* Pause control
+;*
 DSTACK  equ     $DFFF    ;*
 
 _SWI    equ     $3F
@@ -113,13 +168,21 @@ _SWI    equ     $3F
         ELSE
         ORG     $E000
         ENDIF
-;* -----------------------------------------------------------------------------
+;* -[ SWIH ]--------------------------------------------------------------------
+;*
+;* Variables
+;*   SWIV (16)
 ;*
 SWIH    ldx     SWIV
         jmp     0,X
-;* -----------------------------------------------------------------------------
+;* -[ USER ]--------------------------------------------------------------------
 ;*
 ;*      USER service routine
+;*
+;* Variables:
+;*
+;*   USRV (16)
+;*
 USER    LDX     USRV
         jsr     0,X             ;* User code needs a rts to return
         ldx     #DONE
@@ -130,15 +193,28 @@ DONE    fcc     '\n\rDone!\4'
 ;* -----------------------------------------------------------------------------
 ;*
 ;*      I/O INTERRUPT SEQUENCE
+;*
+;* Variables:
+;*
+;*
 IO      LDX     IOV
         JMP     0,X             ;* Needs rti (?)
 ;* -----------------------------------------------------------------------------
 ;*
 ;*      NMI SEQUENCE
+;*
+;* Variables:
+;*
+;*
 POWDWN  LDX     NIO             ;* GET NMI VECTOR
         JMP     ,X              ;* Needs rti (?)
+;* -----------------------------------------------------------------------------
 ;*
 ;*      L COMMAND
+;*
+;*
+;* Variables:
+;*
 ;*
 LOAD    EQU     *
         LDAA    #$0D
@@ -184,17 +260,35 @@ LOAD19  LDAA    #'?'    ;* PRINT QUESTION MARK
 LOAD21  EQU     *
 C1      JMP     CONTRL
 
+;* -----------------------------------------------------------------------------
 ;*
 ;*      BUILD ADDRESS
 ;*
-BADDR   BSR     BYTE    ;* READ 2 FRAMES
-        STAA    XHI
+;*
+;* Variables:
+;*   BADDRH (16)
+;* Input
+;*   none
+;* Return
+;*   X
+;*
+BADDR   BSR     BYTE            ;* READ 2 FRAMES
+        STAA    BADDRH
         BSR     BYTE
-        STAA    XLOW
-        LDX     XHI     ;* (X) ADDRESS WE BUILT
+        STAA    BADDRH+1        ;*
+        LDX     BADDRH          ;* (X) ADDRESS WE BUILT
         RTS
+;* -----------------------------------------------------------------------------
 ;*
 ;*      INPUT BYTE (TWO FRAMES)
+;*
+;* Variables:
+;*   A
+;*   B
+;* Input
+;*   none
+;* Return
+;*   B
 ;*
 BYTE    BSR     INHEX   ;* GET HEX CHAR
         ASLA
@@ -208,40 +302,60 @@ BYTE    BSR     INHEX   ;* GET HEX CHAR
         ADDB    CKSM
         STAB    CKSM
         RTS
+;* -----------------------------------------------------------------------------
 ;*
 ;*      OUT HEX BCD DIGIT
 ;*
-OUTHL   LSRA            ;* OUT HEX LEFT BCD DIGIT
+;* Variables:
+;*   A
+;*
+;*
+OUTHL   LSRA                    ;* OUT HEX LEFT BCD DIGIT
         LSRA
         LSRA
         LSRA
-OUTHR   ANDA    #$F     ;* OUT HEX RIGHT BCD DIGIT
+OUTHR   ANDA    #$0F            ;* OUT HEX RIGHT BCD DIGIT
         ADDA    #$30
         CMPA    #$39
         BLS     OUTCH
         ADDA    #$7
+;* -----------------------------------------------------------------------------
 ;*
 ;*      OUTPUT ONE CHAR
+;*
+;* Variables:
+;*
+;*
 OUTCH   JMP     OUTEEE
 INCH    JMP     INEEE
+;* -----------------------------------------------------------------------------
 ;*
 ;*      PRINT DATA POINTED AT BY X-REG
+;*
+;* Variables:
+;*
+;*
 PDATA2  BSR     OUTCH
         INX
 PDATA1  LDAA    ,X
         CMPA    #4
         BNE     PDATA2
         RTS             ;* STOP ON EOT
+;* -----------------------------------------------------------------------------
 ;*
 ;*      CHANGE MENORY (M AAAA DD NN)
+;*
+;* Variables:
+;*
+;*
 CHANGE  BSR     BADDR   ;* BUILD ADDRESS
 CHA51   LDX     #MCL
         BSR     PDATA1  ;* C/R L/F
-        LDX     #XHI
+        LDX     #BADDRH
         BSR     OUT4HS  ;* PRINT ADDRESS
-        LDX     XHI
+        LDX     BADDRH
         BSR     OUT2HS  ;* PRINT DATA (OLD)
-        STX     XHI     ;* SAVE DATA ADDRESS
+        STX     BADDRH  ;* SAVE DATA ADDRESS
         BSR     INCH    ;* INPUT ONE CHAR
         CMPA    #$20
         BNE     CHA51   ;* NOT SPACE
@@ -251,8 +365,13 @@ CHA51   LDX     #MCL
         CMPA    ,X
         BEQ     CHA51   ;* DID CHANGE
         BRA     LOAD19  ;* NOT CHANGED
+;* -----------------------------------------------------------------------------
 ;*
 ;*      INPUT HEX CHAR
+;*
+;* Variables:
+;*
+;*
 INHEX   BSR     INCH
         SUBA    #$30
         BMI     C1      ;* NOT HEX
@@ -264,23 +383,42 @@ INHEX   BSR     INCH
         BGT     C1      ;* NOT HEX
         SUBA    #7
 IN1HG   RTS
+;* -----------------------------------------------------------------------------
 ;*
 ;*      OUTPUT 2 HEX CHAR
+;*
+;* Variables:
+;*
+;*
 OUT2H   LDAA    0,X     ;* OUTPUT 2 HEX CHAR
 OUT2HA  BSR     OUTHL   ;* OUT LEFT HEX CHAR
         LDAA    0,X
         INX
         BRA     OUTHR   ;* OUTPUT RIGHT HEX CHAR AND R
+;* -----------------------------------------------------------------------------
 ;*
 ;*      OUTPUT 2-4 HEX CHAR + SPACE
+;*
+;* Variables:
+;*
+;*
 OUT4HS  BSR     OUT2H   ;* OUTPUT 4 HEX CHAR + SPACE
 OUT2HS  BSR     OUT2H   ;* OUTPUT 2 HEX CHAR + SPACE
+;* -----------------------------------------------------------------------------
 ;*
 ;*      OUTPUT SPACE
+;*
+;* Variables:
+;*
 OUTS    LDAA    #$20    ;* SPACE
         BRA     OUTCH   ;* (BSR & RTS)
+;* -----------------------------------------------------------------------------
 ;*
 ;*      ENTER POWER  ON SEQUENCE
+;*
+;* Variables:
+;*
+;*
 START   EQU     *
 ;* Clean up RAM 0000-DFFF
 	ldx     #$00
@@ -299,18 +437,70 @@ FFILL   sta     0,X
         ldx     #CONTRL
         stx     USRV
 ;*
+    ifndef	HBNEW
+;*
 ;*      ACIA INITIALIZE
 ;*
-        LDAA    #$03    ;* RESET CODE
+        LDAA    #ACIARST        ;* RESET CODE
         STAA    ACIACS
         NOP
         NOP
         NOP
-        LDAA    #$15    ;* 8N1 NON-INTERRUPT
+        LDAA    #_8N1x16        ;* 8N1 NON-INTERRUPT x16
         STAA    ACIACS
+    else
+;*
+;*      Multiple ACIA INITIALIZE
+;*
+        ldx     #ACIACS         ;* ACIA/PIA ?
+        ldaa    #ACIARST        ;* Port 0 & 1 ACIA - Reset
+        staa    0,X             ;* ACIA 0
+        staa    4,X             ;* ACIA 1 (?)
+        ldaa    #_8N1x16        ;* 
+        staa    0,X             ;* ACIA 0
+        staa    4,X             ;* ACIA 1 (?)
+;*
+;*      Video display init (custom)
+;*
+        ;jsr     VINIT           ;* Initialize video
+
+    endif
+;*
+    ifndef       HBNEW
+;*
+;* Thoughts 14 - Pg 178 (Pg 1)
+;* I'm not certain what P0 and P1 are but a Keyboard and Video suggest
+;* That this is a video terminal
+;*
+        clra
+        staa    DSTAT           ;* Turn off D
+        staa    P0OUT           ;* Turn off port 0 output
+        staa    PASTAT          ;* Turn off pause function
+        deca
+        staa    P1STAT          ;* Turn on control port output
+        staa    VSTAT           ;* Turn on video board output
+;       ldx     DWARMV          ;* (undefined)
+;       stx     RETADD          ;* Initialize pause-return address
+;* ACIA input initialization
+        ldaa    #_8N1x16        ;*
+        staa    KBDINZ          ;*
+;* ACIA output initialization
+        ldaa    #_7E2x16        ;* ACIA output initialize
+        staa    PRTINZ
+;*
+;* I don't have a punch and reader
+;*
+;*      ldaa    #$13            ;* Turn reader off
+;*      jsr     OUTCHR
+;*      inca                    ;* Turn off punch
+;*      jsr     OUTCHH
+        ldx     #ACIACS
+        stx     P0RADD
+    endif
 ;*
         ldx     #HELLOST
         jsr     PDATA1
+;* -----------------------------------------------------------------------------
 ;*
 ;*      COMMAND CONTROL
 ;*
@@ -478,8 +668,13 @@ PCLO    DEC     6,X             ;* Dec PCLO
         ;stx     $20             ;* (njc)
 	jsr	PRNTOP          ;* Print Address and Instruction
         tsx
+;* -----------------------------------------------------------------------------
 ;*
 ;*      PRINT CONTENTS OF STACK
+;*
+;*
+;* Variables:
+;*
 ;*
 PRINT   jsr     CC              ;* OUT2HS  ;* CONDITION CODES
         jsr     OUT2HS          ;* ACC-B
@@ -521,6 +716,9 @@ RELOOP  aslb                    ;* Move next bit into carry
 ;*      PUNCH DUMP
 ;*      PUNCH FROM BEGINING ADDRESS (BEGA) THRU ENDI
 ;*      ADDRESS (ENDA)
+;*
+;* Variables:
+;*
 ;*
 MTAPE1  FCB     '\r\nS1\4'      ;* PUNCH FORMAT
 ;       FCB     1,1,1,1 ;* GRUE
@@ -591,9 +789,15 @@ MCL     fcc     '\r\n* \4'
 SAV     STX     XTEMP
         RTS
 ;       FCB     1,1,1   ;* GRUE
+;* -----------------------------------------------------------------------------
 ;*
 ;*      INPUT ONE CHAR INTO A-REGISTER
+;*
+;* Variables:
+;*
+;*
 INEEE
+    ifndef      HBNEW
         BSR     SAV
 IN1     LDAA    ACIACS
         ASRA
@@ -607,8 +811,96 @@ IN1     LDAA    ACIACS
 ;       FCB     1,1,1,1,1,1,1,1 ;* GRUE
 ;       FCB     1,1,1,1,1,1,1,1 ;* GRUE
 ;       FCB     1       ;* GRUE
+    else
+        pshb                    ;* Save B
+        stx     INEEXR          ;* Save Registers
+INRPT   bsr     INCH7           ;* Get input character
+        cmpa    #CTRL_S         ;* Is it Control-S?
+        beq     GOTCS           ;* Yes
+        tst     P0RECH          ;* No; Echo on?
+        bne     INEXIT          ;* No, so exit
+        bsr     OUTEEE          ;* Yes, so echo
+INEXIT  ldx     INEEXR          ;* Restore registers
+        pulb
+        rts                     ;* and return
+;*
+;* Control-S detected, Get and interpret command
+;*
+GOTCS   bsr     GETCMD          ;* Do command
+        bra     INRPT
+;*
+;* Subroutine to get and do command
+;*
+GETCMD  ldaa    #BELL
+        jsr     OUTCHM          ;* Echo BELL on CTL port
+        bsr     INCH7           ;* Get second character of command
+        cmpa    #'0'            ;* Port 0 command
+        bne     NOTZERO         ;* No
+        com     P0STAT          ;* Yes; flip port 0 status
+        rts                     ;* and return
+;*
+NOTZERO cmpa    #'1'            ;* Port 1 command
+        bne     NOT1            ;* No
+        com     P1STAT          ;* Yes; flip port 1 status
+        rts                     ;* and return
+;*
+NOT1    cmpa    #'D'            ;* Port D command?
+        bne     NOTD            ;* No
+        com     DSTAT           ;* Yes; flip port D status
+        rts                     ;* and return
+;*
+NOTD    cmpa    #'P'            ;* Pause command?
+        bne     NOTZERO         ;* No
+        com     PASTAT          ;* Yes; flip pause status
+        ldaa    #$0F            ;* 16?
+        staa    PAUCTR          ;* Reset Pause line counter
+        rts                     ;* and return
+;*
+NOTP    cmpa    #CR             ;* CR command to Quit?
+        bne     NOTZERO         ;* No
+        pulb                    ;* Yes' fill up the stack
+        pulb
+QUIT    pulb                    ;* restore B
+        pula
+        pula                    ;* Fix stack some more
+        ldx     RETADD          ;* Get return address
+        jmp     0,X             ;* and return
+NOTCR   rts                     ;* Return without doing anything otherwise
+;*
+;* Actual control port input routines
+;*
+INCH7   bsr     INCH8           ;* Get 7-bit character
+        anda    #$7F            ;* Mask out parity
+        rts                     ;*
+;*
+INCH8   ldx     P0RADD          ;* Get 8 bit character
+        ldaa    KBDINZ          ;* Configure ACIA
+        staa    0,X             ;*                      ;* ACIACS
+ACIAIN  ldaa    0,X             ;*
+        asra                    ;*
+        bcc     ACIAIN          ;* Wait for character
+        ldaa    1,X             ;* Get it               ;* ACIADA
+        rts                     ;* And return
+;*
+
+    endif
+;* -----------------------------------------------------------------------------
 ;*
 ;*      OUTPUT ONE CHAR 
+;*
+;* Variables:
+;*
+;*
+;* | 0 | Receive Data Register Full (RDRF)                               |
+;* | 1 | Transmit Data Register Empty (TDRE)                             |
+;* | 2 | Data Carrier Detect (DCD)                                       |
+;* | 3 | Clear to-Send (CTS) 4 Data Bit 4 Data Bit 4 Word Select 3 (CR4) |
+;* | 4 | Framing Error (FE)                                              |
+;* | 5 | Receiver Overrun (OVRN)                                         |
+;* | 6 | Parity Error (PE)                                               |
+;* | 7 | Interrupt Request                                               |
+;*
+    ifndef      HBNEW
 OUTEEE  PSH     A
 OUTEEE1 LDAA    ACIACS
         ASRA
@@ -617,8 +909,88 @@ OUTEEE1 LDAA    ACIACS
         PULA
         STAA    ACIADA
         RTS
+    else
+NJC
+OUTEEE  pshb                    ;* Save B
+        stx     OUTEXR          ;* Save X
+        psha                    ;* Save character
+        ldx     P0RADD          ;*
+        ldaa    0,X             ;* Check control port
+        asra                    ;* Rcv reg Full?
+        bcc     NOTEST          ;* No
+        ldaa    1,X             ;* Character; Get it
+        anda    #$7F            ;* Mask out parity bit
+        bsr     GETCMD          ;* Yes; Get command and do it
+NOTEST  pula                    ;* Finished testing for command
+;*
+;* Check for pause
+;*
+        tst     PASTAT          ;* Pause stat on?
+        beq     NOPAUS          ;* No
+        cmpa    #$10            ;* Clear screen?
+        bne     NOCLR           ;* No
+        ldaa    #$0F            ;* Test; reset pause counter
+        staa    PAUCTR          ;*
+        bra     NOPAUS          ;*
+NOCLR   cmpa    #$0D            ;* CR?
+        bne     NOPAUS          ;* Only pause at the end of the line
+        dec     PAUCTR          ;* decr pause line cntr
+        bne     NOPAUS          ;* and check it
+        ldaa    #$0F            ;* Must pause, reset cntr
+        staa    PAUCTR          ;*
+        bsr     INCH7           ;* wait for restart char
+        cmpa    #$0D            ;* Quit if it's a CR
+        bne     PCONT           ;*
+        jmp     QUIT            ;*
+PCONT   ldaa    #$0D            ;* continue with a CR
+NOPAUS  tst     P0STAT          ;* Print on port 0?
+        beq     NOTPT0          ;* No
+        bsr     OUTCH0          ;* yes
+NOTPT0  tst     P1STAT          ;* Print on control port?
+        beq     NOTPTH          ;* No
+        bsr     OUTCHM          ;* Yes
+NOTPTH  tst     VSTAT           ;* Output via video BOARD?
+        beq     NOTVID          ;* No
+        psha                    ;* Yes
+        bsr     NOTVID          ;* Output to video
+        pula                    ;*
+NOTVID  tst     DSTAT           ;* Print on D?
+        beq     NOTDUR          ;* No
+    if          mompass=1
+        warning "###"
+        warning "### @FIXME: Need video routines for MACCII"
+        warning "###"
+    endif
+        ;jsr     OUTCMD         ;* Yes @FIXME: Need video routines for MACCII
+        nop
+NOTDUR  ldx     OUTEXR          ;* Reload X & B
+        pulb                    ;*
+        rts                     ;*
 ;* -----------------------------------------------------------------------------
-; 
+;*
+;* Output on Port 0
+;*
+OUTCH0  ldx     #ACIACS         ;* Output to Port 0
+        bra     OUTCHE          ;*
+;*
+;* Output no control port
+;*
+OUTCHM  ldx     P0RADD          ;*
+OUTCHE  ldab    PRTINZ          ;* ACIA init
+        stab    0,X             ;* Init for 8 bits, 2 stop bits
+OUTH2   ldab    0,X             ;* Wait for ready
+        asrb                    ;*
+        asrb                    ;*
+        bcc     OUTH2           ;*
+        staa    1,X             ;* Print it
+        rts                     ;* ($FE77)
+
+    endif
+;* -----------------------------------------------------------------------------
+;*
+;*
+;* Variables:
+;*
 FMINST  jsr	FROMTO          ;* Get From/To (BEGA/ENDA)
 	ldx	#WITHST         ;*
 	jsr	PDATA1
@@ -633,7 +1005,10 @@ FM1	inx
 
 WITHST  fcc     "WITH? \4"
 ;* -[ Jump ]--------------------------------------------------------------------
-;
+;*
+;*
+;* Variables:
+;*
         ;;
         ;; JU - JUMP to user program
         ;; 
@@ -676,6 +1051,9 @@ SFRMST  fcc     "START FROM ADDRESS: \4"
 ;* area below A042 as being a monitor stack, while the area just below A049 as
 ;* a user stack.
 ;*
+;*
+;* Variables:
+;*
 STINST: ldx	#SFRMST         ; $7B6C
 	jsr	PDATA1
 	jsr	BADDR           ;* L768A
@@ -694,8 +1072,11 @@ STINST: ldx	#SFRMST         ; $7B6C
 	stx	ENDA            ;* @FIXME: might not be correct (X7FFE)
 	ldx	#DSTACK         ;* (X7FF6)
 	stx	SP              ;* (X770F)
+;* -----------------------------------------------------------------------------
 ;*
+;* Single Step
 ;*
+;* Variables:
 ;*
 SSINST  ldx	SP              ;*
     ifdef NADA
@@ -725,16 +1106,10 @@ SSINST  ldx	SP              ;*
 	ldx	6,X             ;* PC
 	stx	PC              ;* USER PC
 	stx	SAVEX           ;* SAVEX  (temp, X gets inc'd by PRNTOP)
-        ;stx     $2E             ;* (njc)
 	jsr	PRNTOP          ;* Print Address and Instruction (L79CE, DE2)
 ;
 ;
         ldx     SAVEX
-        ;stx     $26             ;* (njc)
-        ;;
-        ;; It appears that the 2nd step doesn't correct the old SWI.    WHY???
-        ;; @FIXME: NEXT/SAVINST has wrong inst here!
-        ;; 
 	stx	NEXT            ;* NEXT   @D030 (X76EC)
 	ldaa	0,X             ;* Get current instruction
 	staa	SAVINST         ;* Save it
@@ -779,8 +1154,6 @@ NOTJIN	cmpa	#$AD            ;* JSR -
 	cmpa	#$3E            ;* WAI - 
 	bne	NORMAL          ;* Ok if not WAI (L7C05)
 ;*
-;* @FIXME: 2 Problems, leaves SWIstores the next instruction not current
-;*
 ;* Thoughts 14 - Pg 189  Listing 20
 ;*
 NOGOOD	ldx	#NOST           ;*
@@ -806,6 +1179,9 @@ GOUSER	ldx	#SSRETN         ;* Redirect SWI return
 
 ;* -----------------------------------------------------------------------------
 ; Is this L7C14?
+;*
+;* Variables:
+;*
 SSRETN	ldx	SFE             ; Restore the break address
         stx     SWIJMP
 	ldx	NEXT            ;* Restore thee next OP Code
@@ -861,6 +1237,9 @@ JEXT	ldx	PC              ;*
 ;*
 ;* Handle Indexed jump
 ;*
+;*
+;* Variables:
+;*
 JINDEX	ldx	PC               ;*
 	ldab	1,X              ;* Get offset
 	ldx	SP               ;* (X770F)
@@ -878,12 +1257,16 @@ RTSIN	ldx	SP               ;* Get user stack pointer X770F
 	bra	GOTADD           ;* And treat it as a jump (L7C43)
 
 ;* -----------------------------------------------------------------------------
-;
+;*
 ;* -----------------------------------------------------------------------------
-HELLOST fcb     '\12\r\nMODBUG 1.11.18\4' ;* 12 = ^L (CLS)
+HELLOST fcb     '\12\r\nMODBUG 1.12.2' ;* 12 = ^L (CLS)
+        fcb     LOPT, CTRL_D           ;* LOPT is the type s or v
 ;* -----------------------------------------------------------------------------
-; ==============================================================================
-;OUTCH
+;* ==============================================================================
+;*
+;*
+;* Variables:
+;*
 CRLF    stx     OUTEXR
         ldx     #CRLFST         ; ($771F)
         jsr     PDATA1
@@ -903,6 +1286,9 @@ CRLFST  fcc     "\r\n\4"
 ;; load into ENDA
 ;; 
 ;* -[ From/To ]-----------------------------------------------------------------
+;*
+;* Variables:
+;*
 FROMTO  ldx     #FROMST         ;* Print From ($799D) @FIXME
         jsr     PDATA1          ;*
         jsr     INEEE           ;*
@@ -955,6 +1341,9 @@ FROMST  fcc   " FROM \4"
 TOSTR   fcc   " TO \4"
 
 ;* -[ AD - ASCII Dump ]---------------------------------------------------------
+;*
+;* Variables:
+;*
 ADINST  jsr     FROMTO          ;* GET ADDRESSES
         ldx     BEGA            ;* GET STARTING ADDRESS
         stx     SAVEX           ;* Art: SAVEX (SAVEX)
@@ -1022,6 +1411,9 @@ PCH     jsr     OUTEEE
 ;
 ;  DISASSEMBLE "X" COMMAND
 ;
+;*
+;* Variables:
+;*
 DEINST: jsr	FROMTO          ; (L 7957)
 	ldx	BEGA            ;* X7705
 	stx	SAVEX
@@ -1033,8 +1425,12 @@ DE1	bsr	PRNTOP          ;* Goto to print current line (L79CE)
 	bcc	DE1             ;* Return if next <= last (L79BD)
         jmp     CONTRL
 ;	rts                     ;* Otherwise exit
+;* -----------------------------------------------------------------------------
 ;*
 ;* PRNTOP - Subroutine to print address and current instruction
+;*
+;*
+;* Variables:
 ;*
 PRNTOP	jsr	CRLF            ;*
 	ldx	#SAVEX          ;* Set location of next address
@@ -1092,6 +1488,9 @@ POP3	rts                     ;* (L7A22)
 ;;
 ;; BKTAB[n] = | Addr | op | an addr of $FFxx means empty ($FFxx is ROM)
 ;; 
+;*
+;* Variables:
+;*
 BRINST  bsr	BKNUM           ; GET NUMBER OF DESIRED BP (L 7A6A); X contains BKTAB Addr
 	stx	TMPSTR          ; Save BP# to tmp (what are we saving?)
 	bsr	BERASE          ; GO ERASE OLD ONE & Restore if nec. (L 7A4C)
@@ -1107,7 +1506,7 @@ BRINST  bsr	BKNUM           ; GET NUMBER OF DESIRED BP (L 7A6A); X contains BKTA
 	staa	0,X             ; Stow   SWI -> @X
 	ldx	TMPSTR          ; Get BP# from tmp (X 7711)
 ;*       Hi Lo #
-;* BPTAB addr1 OP
+;* BKTAB addr1 OP
 ;*       addr2 OP
 ;*       addr3 OP
 ;*       addr4 OP
@@ -1164,6 +1563,9 @@ BKEXIT  rts
 ;; 
 ;; BP - Print Break table
 ;; 
+;*
+;* Variables:
+;*
 BPINST: ldab	#$30            ; BP Number in ASCII '0'
 	ldx	#BKTAB          ; ($ 76EF)
 	stx	SAVEX           ;* Tmp storage ?
@@ -1193,11 +1595,9 @@ BPR4:   stx	SAVEX
 
 ; -[ Find ]---------------------------------------------------------------------
 ;*
-    ifndef      NADA
-; ===========================================================================
-        ;;* E305 14 Pg 183R
-        ;ORG     $E305          ;
-
+;*
+;* Variables:
+;*
 FIND
 FIINST  ldx     #MANYST         ;* ($E0AB)
         jsr     PDATA1          ;* Ask "How many btyes"
@@ -1272,68 +1672,6 @@ FIND4   cpx     ENDA            ;* See if doine
 FIND5   jmp     CRLF            ;* Do last CRLF nd return to FCROM when done ($E37E)
 
 FIEND   jmp     CONTRL
-
-    else
-FIINST: ldx	#MANYST         ;*
-	jsr	PDATA1
-	jsr	INEEE           ;*
-	suba	#$30
-	beq	FIND6
-	bmi	FIND6
-	cmpa	#$03
-	bgt	FIND6
-	staa	NBYTES          ;*
-	jsr	OUTS            ;*
-	ldx	#WHATST         ;*
-	jsr	PDATA1
-	ldab	NBYTES          ;*
-	ldx	#NEXT           ;*
-FIND1	pshb
-	jsr	BYTE
-	pulb
-	staa	0,X
-	inx
-	decb
-	bne	FIND1
-	jsr	CRLF
-	jsr	FROMTO          ; (L7957)
-	ldx	BEGA            ;* X7705
-FIND2	ldab	NBYTES          ;* X76E9
-	ldaa	0,X
-	cmpa	NEXT            ;* (X76EC)
-	bne	FIND5
-	decb
-	beq	FIND3
-	ldaa	1,X
-	cmpa	NEXT+1          ;* (X76ED)
-	bne	FIND5
-	decb
-	beq	FIND3
-	ldaa	2,X
-	cmpa	SAVINST         ;* (X76EE)
-	bne	FIND5
-FIND3	stx	SAVEX
-	bsr	FIND6
-	ldx	#SAVEX
-	bsr	FIND7
-	jsr	OUTS            ; (L 76DA)
-	ldx	SAVEX
-	dex
-	ldab	#$04
-FIND4	jsr	OUT2HS          ; (L 76D8)
-	decb
-	bne	FIND4
-	ldx	SAVEX
-FIND5	cpx	ENDA            ; X7707
-	beq	FIND6
-	inx
-	bra	FIND2
-
-FIND6	jsr	CRLF
-        jmp     CONTRL
-
-FIND7	jmp	OUT4HS          ; L76D6
-    endif
 ;
 MANYST  fcc     "HOW MANY? \4"
 WHATST  fcc     "WHAT? \4"
