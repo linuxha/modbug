@@ -23,7 +23,23 @@ writing to low memory (not code). While the code verion is 1.11.14
 it's really Alpha code. I need to get this under a version control
 system so I can keep track of the changes.
 
+All functions are jumped to (uses a branch to a vector table and a
+jump to the function). So you need to jump back to CONTRL when the
+function has completed. Humbug uses jump to subroutines (jsr) to
+execute a function. Humbug would require a return from subroutine
+(rts) to complete. Otherwise the stack gets filled up.
+
 # History
+
+August 12, 2025
+
+Got a lot side tracked with my Mom's health and the addition of new
+toys. An Apple I (6502), 2 bare Apple I (one for 6502 & 0ne for a
+6800). I won't explain the why just that it's a distraction. But more
+importantly I have a 6800 Gimix Ghost and a 6800 SWTPC. I will get
+back to Humbug and Modbug so I can add it to both machines. I'll need
+to work out the disk drivers (and maybe a Fujinet like board). Anyway,
+this isn't forgotten just moved aside until I can focus on it again.
 
 April 24, 2024 - 1.11.17
 
